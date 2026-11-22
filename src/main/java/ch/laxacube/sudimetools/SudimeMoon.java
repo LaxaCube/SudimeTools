@@ -68,6 +68,9 @@ public final class SudimeMoon implements Listener {
     private double spawnX = 0.5;
     private double spawnY = 100.0;
     private double spawnZ = 0.5;
+    /** La Lune n'est accessible qu'aux porteurs de sudime.moon tant qu'elle est fermée. */
+    private boolean open;
+
     private boolean mobs = true;
     private String mobModel = "blue_wizard";
     private int interval = 200;
@@ -244,6 +247,11 @@ public final class SudimeMoon implements Listener {
 
     /** Envoie le joueur sur la Lune (armure lunaire complète obligatoire). */
     public void enter(Player player) {
+        if (!open && !player.hasPermission("sudime.moon")) {
+            player.sendMessage(Component.text("La Lune n'est pas encore ouverte.",
+                    NamedTextColor.RED));
+            return;
+        }
         String missing = missingArmor(player);
         if (missing != null) {
             player.sendMessage(Component.text("Il te faut l'Armure Lunaire complète pour passer le portail "
@@ -450,6 +458,7 @@ public final class SudimeMoon implements Listener {
             created.set("spawn.x", spawnX);
             created.set("spawn.y", spawnY);
             created.set("spawn.z", spawnZ);
+            created.set("open", open);
             created.set("mobs.enabled", mobs);
             created.set("mobs.model", mobModel);
             created.set("mobs.interval", interval);
@@ -467,6 +476,7 @@ public final class SudimeMoon implements Listener {
         spawnX = yaml.getDouble("spawn.x", spawnX);
         spawnY = yaml.getDouble("spawn.y", spawnY);
         spawnZ = yaml.getDouble("spawn.z", spawnZ);
+        open = yaml.getBoolean("open", open);
         mobs = yaml.getBoolean("mobs.enabled", mobs);
         mobModel = yaml.getString("mobs.model", mobModel);
         interval = Math.max(20, yaml.getInt("mobs.interval", interval));
