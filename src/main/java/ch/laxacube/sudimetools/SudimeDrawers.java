@@ -6,6 +6,8 @@ import net.momirealms.craftengine.bukkit.api.CraftEngineBlocks;
 import net.momirealms.craftengine.bukkit.api.CraftEngineItems;
 import net.momirealms.craftengine.bukkit.api.event.CustomBlockBreakEvent;
 import net.momirealms.craftengine.core.block.ImmutableBlockState;
+import net.momirealms.craftengine.core.block.property.Property;
+import net.momirealms.craftengine.core.util.Direction;
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
 import org.bukkit.Location;
@@ -550,7 +552,7 @@ public final class SudimeDrawers implements Listener {
         if (!world.isChunkLoaded(block.getX() >> 4, block.getZ() >> 4)) {
             return;
         }
-        Location center = block.getLocation().add(0.5, 1.2, 0.5);
+        Location center = frontCenter(block);
         world.spawn(center, TextDisplay.class, display -> {
             display.text(buildText(drawer));
             display.setBillboard(Display.Billboard.CENTER);
@@ -572,8 +574,8 @@ public final class SudimeDrawers implements Listener {
         if (!world.isChunkLoaded(block.getX() >> 4, block.getZ() >> 4)) {
             return;
         }
-        Location center = block.getLocation().add(0.5, 1.2, 0.5);
-        for (Entity entity : world.getNearbyEntities(center, 1.0, 1.5, 1.0)) {
+        Location center = frontCenter(block);
+        for (Entity entity : world.getNearbyEntities(center, 1.0, 1.2, 1.0)) {
             if (!(entity instanceof TextDisplay)) {
                 continue;
             }
@@ -585,6 +587,34 @@ public final class SudimeDrawers implements Listener {
                 entity.remove();
             }
         }
+    }
+
+    /** Point au centre de la face avant du drawer (là où est affiché l'hologramme). */
+    private Location frontCenter(Block block) {
+        Location center = block.getLocation().add(0.5, 0.55, 0.5);
+        try {
+            ImmutableBlockState state = CraftEngineBlocks.getCustomBlockState(block);
+            if (state != null) {
+                Property<Direction> property = state.getProperty("facing");
+                if (property != null) {
+                    Direction facing = state.get(property);
+                    if (facing != null) {
+                        switch (facing) {
+                            case NORTH -> center.add(0, 0, -0.55);
+                            case SOUTH -> center.add(0, 0, 0.55);
+                            case EAST -> center.add(0.55, 0, 0);
+                            case WEST -> center.add(-0.55, 0, 0);
+                            default -> {
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+            // Pas de facing lisible : hologramme au-dessus du bloc.
+            center.add(0, 0.65, 0);
+        }
+        return center;
     }
 
     private Component buildText(Drawer drawer) {
