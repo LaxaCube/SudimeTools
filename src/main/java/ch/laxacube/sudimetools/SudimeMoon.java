@@ -14,7 +14,6 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.WorldCreator;
 import org.bukkit.block.Block;
-import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Entity;
@@ -24,28 +23,23 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 /**
  * Dimension lunaire : monde généré par le plugin, portail et armure obligatoire.
  * <ul>
- *     <li>Cadre de <code>sudime:moon_portal_frame</code> + clic droit en armure
- *     lunaire complète → le cadre se remplit de blocs de portail.</li>
- *     <li>Marcher dans un bloc de portail téléporte (Lune → Overworld et retour).</li>
+ *     <li>Un simple bloc <code>sudime:moon_portal</code> posé n'importe où : clic
+ *     droit dessus avec l'Armure Lunaire complète → téléportation sur la Lune.</li>
+ *     <li>Sur la Lune, le même bloc (posé au spawn) ramène d'où l'on vient.</li>
  *     <li>Les mobs lunaires apparaissent autour des joueurs, avec un modèle
  *     BetterModel quand il est disponible.</li>
  * </ul>
@@ -56,7 +50,6 @@ public final class SudimeMoon implements Listener {
     private static final String REGOLITH = "sudime:moon_regolith";
     private static final String MOON_ROCK = "sudime:moon_rock";
     private static final String PYRITE = "sudime:pyrite_ore";
-    private static final String FRAME = "sudime:moon_portal_frame";
     private static final String PORTAL = "sudime:moon_portal";
     private static final String HELMET = "sudime:moon_helmet";
     private static final String CHESTPLATE = "sudime:moon_chestplate";
@@ -183,17 +176,8 @@ public final class SudimeMoon implements Listener {
                 place(new Location(world, cx + dx, cy - 2, cz + dz), MOON_ROCK);
             }
         }
-        // Arche de retour : 2 piliers, une barre, et le portail à l'intérieur.
-        for (int dy = 0; dy <= 3; dy++) {
-            place(new Location(world, cx - 1, cy + dy, cz - 2), FRAME);
-            place(new Location(world, cx + 2, cy + dy, cz - 2), FRAME);
-        }
-        for (int dx = 0; dx <= 1; dx++) {
-            place(new Location(world, cx + dx, cy + 3, cz - 2), FRAME);
-            for (int dy = 0; dy <= 2; dy++) {
-                place(new Location(world, cx + dx, cy + dy, cz - 2), PORTAL);
-            }
-        }
+        // Retour : un seul bloc de portail posé devant le point d'arrivée.
+        place(new Location(world, cx, cy, cz - 3), PORTAL);
         world.setSpawnLocation(cx, cy, cz);
     }
 
@@ -222,123 +206,26 @@ public final class SudimeMoon implements Listener {
             return;
         }
         Block block = event.getClickedBlock();
-        if (block == null || !FRAME.equals(ceBlockId(block))) {
+        if (block == null || !PORTAL.equals(ceBlockId(block))) {
             return;
         }
         event.setCancelled(true);
-        Player player = event.getPlayer();
-        String missing = missingArmor(player);
-        if (missing != null) {
-            player.sendActionBar(Component.text("Il te manque : " + missing, NamedTextColor.RED));
-            player.playSound(player.getLocation(),
-                    org.bukkit.Sound.BLOCK_NOTE_BLOCK_BASS, 1f, 0.6f);
-            return;
-        }
-        int filled = fillPortal(block, event.getBlockFace());
-        if (filled <= 0) {
-            player.sendActionBar(Component.text("Cadre de portail invalide", NamedTextColor.GRAY));
-            return;
-        }
-        player.sendActionBar(Component.text("Portail lunaire ouvert", NamedTextColor.AQUA));
-        player.playSound(player.getLocation(), org.bukkit.Sound.BLOCK_PORTAL_TRIGGER, 0.6f, 1.6f);
-    }
-
-    /** Remplit d'un coup la zone d'air enfermée par un cadre de blocs de portail. */
-    private int fillPortal(Block clicked, BlockFace face) {
-        BlockFace[] plane = switch (face) {
-            case NORTH, SOUTH -> new BlockFace[]{BlockFace.UP, BlockFace.EAST};
-            case EAST, WEST -> new BlockFace[]{BlockFace.UP, BlockFace.NORTH};
-            default -> new BlockFace[]{BlockFace.NORTH, BlockFace.EAST};
-        };
-        for (BlockFace direction : new BlockFace[]{plane[0], plane[0].getOppositeFace(),
-                plane[1], plane[1].getOppositeFace()}) {
-            Block start = clicked.getRelative(direction);
-            if (!isAir(start)) {
-                continue;
-            }
-            Set<String> region = floodAir(start, plane);
-            if (region.size() >= 2) {
-                for (String key : region) {
-                    place(parseKey(start.getWorld(), key), PORTAL);
-                }
-                return region.size();
-            }
-        }
-        return 0;
-    }
-
-    /** Zone d'air connexe dans le plan, ou vide si le contour n'est pas un cadre. */
-    private Set<String> floodAir(Block start, BlockFace[] plane) {
-        Set<String> visited = new HashSet<>();
-        Deque<Block> queue = new ArrayDeque<>();
-        queue.add(start);
-        visited.add(key(start));
-        while (!queue.isEmpty()) {
-            Block current = queue.poll();
-            if (visited.size() > 64) {
-                return Set.of();
-            }
-            for (BlockFace direction : new BlockFace[]{plane[0], plane[0].getOppositeFace(),
-                    plane[1], plane[1].getOppositeFace()}) {
-                Block next = current.getRelative(direction);
-                if (visited.contains(key(next))) {
-                    continue;
-                }
-                if (isAir(next)) {
-                    visited.add(key(next));
-                    queue.add(next);
-                } else if (!FRAME.equals(ceBlockId(next))) {
-                    return Set.of();
-                }
-            }
-        }
-        return visited;
-    }
-
-    private static String key(Block block) {
-        return block.getX() + ";" + block.getY() + ";" + block.getZ();
-    }
-
-    private static Location parseKey(World world, String key) {
-        String[] parts = key.split(";");
-        return new Location(world, Integer.parseInt(parts[0]), Integer.parseInt(parts[1]),
-                Integer.parseInt(parts[2]));
-    }
-
-    private static boolean isAir(Block block) {
-        return block.getType().isAir();
-    }
-
-    // ------------------------------------------------------------------
-    // Téléportation
-    // ------------------------------------------------------------------
-
-    @EventHandler(ignoreCancelled = true)
-    public void onMove(PlayerMoveEvent event) {
-        Location to = event.getTo();
-        Location from = event.getFrom();
-        if (to.getWorld() == null) {
-            return;
-        }
-        if (to.getBlockX() == from.getBlockX() && to.getBlockY() == from.getBlockY()
-                && to.getBlockZ() == from.getBlockZ()) {
-            return;
-        }
-        if (!PORTAL.equals(ceBlockId(to.getBlock()))) {
-            return;
-        }
         Player player = event.getPlayer();
         long now = System.currentTimeMillis();
         if (cooldown.getOrDefault(player.getUniqueId(), 0L) > now) {
             return;
         }
-        cooldown.put(player.getUniqueId(), now + 5000L);
-        if (to.getWorld().getName().equals(WORLD_NAME)) {
+        cooldown.put(player.getUniqueId(), now + 3000L);
+        if (block.getWorld().getName().equals(WORLD_NAME)) {
             leaveMoon(player);
         } else {
             enter(player);
         }
     }
+
+    // ------------------------------------------------------------------
+    // Téléportation
+    // ------------------------------------------------------------------
 
     /** Envoie le joueur sur la Lune (armure lunaire complète obligatoire). */
     public void enter(Player player) {
