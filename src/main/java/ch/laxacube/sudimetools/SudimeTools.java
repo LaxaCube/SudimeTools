@@ -121,6 +121,7 @@ public final class SudimeTools extends JavaPlugin implements Listener {
             new NamespacedKey("sudimetools", "hammer_slow");
 
     private SudimeDrawers drawers;
+    private SudimeMoon moon;
 
     private final Set<UUID> activeMagnets = new HashSet<>();
     private final Set<Location> busy = new HashSet<>();
@@ -138,6 +139,8 @@ public final class SudimeTools extends JavaPlugin implements Listener {
             drawers = new SudimeDrawers(this);
             drawers.enable();
             getLogger().info("Drawers en Sudime : bloc à 4 compartiments enregistré.");
+            moon = new SudimeMoon(this);
+            moon.enable();
         }
         loadTurbo();
         // Aimant : aspiration toutes les 0,5 s.
@@ -153,6 +156,9 @@ public final class SudimeTools extends JavaPlugin implements Listener {
     public void onDisable() {
         if (drawers != null) {
             drawers.disable();
+        }
+        if (moon != null) {
+            moon.disable();
         }
         saveTurbo();
         activeMagnets.clear();
@@ -981,7 +987,20 @@ public final class SudimeTools extends JavaPlugin implements Listener {
             toggleMagnet(player);
             return true;
         }
-        player.sendMessage(Component.text("Usage : /sudimetools <id [joueur]|dump|selftest|magnet|drawer>", NamedTextColor.GRAY));
+        if ("moon".equals(sub)) {
+            if (moon == null) {
+                player.sendMessage(Component.text("CraftEngine absent : Lune indisponible.",
+                        NamedTextColor.RED));
+                return true;
+            }
+            if (args.length >= 2 && "kit".equalsIgnoreCase(args[1])) {
+                moon.giveKit(player);
+                return true;
+            }
+            moon.enter(player);
+            return true;
+        }
+        player.sendMessage(Component.text("Usage : /sudimetools <id [joueur]|dump|selftest|magnet|drawer|moon [kit]>", NamedTextColor.GRAY));
         return true;
     }
 }
