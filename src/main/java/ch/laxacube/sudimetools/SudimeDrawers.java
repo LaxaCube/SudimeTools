@@ -10,6 +10,7 @@ import net.momirealms.craftengine.core.block.property.Property;
 import net.momirealms.craftengine.core.util.Direction;
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
+import org.bukkit.FluidCollisionMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -39,6 +40,7 @@ import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 import org.joml.AxisAngle4f;
 import org.bukkit.util.Transformation;
@@ -243,7 +245,7 @@ public final class SudimeDrawers implements Listener {
         }
         Player player = event.getPlayer();
         Drawer drawer = getOrCreate(block);
-        int slot = slotFor(event, drawer);
+        int slot = slotFor(player, block, drawer);
 
         if (action == Action.LEFT_CLICK_BLOCK) {
             // On ne cancel pas : la casse du bloc (appui long) reste possible.
@@ -257,47 +259,49 @@ public final class SudimeDrawers implements Listener {
         insert(player, block, drawer, slot);
     }
 
-    /** Compartiment visé selon le quartier cliqué sur la face. */
-    private int slotFor(PlayerInteractEvent event, Drawer drawer) {
-        Vector hit = event.getClickedPosition();
-        double u;
-        double v;
-        if (hit == null) {
-            u = 0.5;
-            v = 0.5;
-        } else if (event.getBlockFace() == null) {
-            u = hit.getX();
-            v = hit.getY();
+    /**
+     * Compartiment visé : on relance le rayon du regard du joueur sur la boîte du bloc,
+     * ce qui donne exactement la case sous le curseur (l'événement ne fournit pas
+     * toujours la position cliquée, d'où l'ancien comportement « toujours le même item »).
+     */
+    private int slotFor(Player player, Block block, Drawer drawer) {
+        Face face = faceOf(block);
+        Location eye = player.getEyeLocation();
+        Vector point = null;
+        RayTraceResult hit = block.rayTrace(eye, eye.getDirection(), 8.0, FluidCollisionMode.NEVER);
+        if (hit != null) {
+            point = hit.getHitPosition();
         } else {
-            switch (event.getBlockFace()) {
-                case NORTH -> {
-                    u = 1.0 - hit.getX();
-                    v = hit.getY();
-                }
-                case EAST -> {
-                    u = 1.0 - hit.getZ();
-                    v = hit.getY();
-                }
-                case WEST -> {
-                    u = hit.getZ();
-                    v = hit.getY();
-                }
-                case UP -> {
-                    u = hit.getX();
-                    v = 1.0 - hit.getZ();
-                }
-                case DOWN -> {
-                    u = hit.getX();
-                    v = hit.getZ();
-                }
-                default -> {
-                    u = hit.getX();
-                    v = hit.getY();
-                }
-            }
+            // Visée très oblique ou entité devant le bloc : on projette le regard sur la face avant.
+            point = intersectFace(eye, face, block);
         }
-        int quadrant = (u < 0.5 ? 0 : 1) + (v < 0.5 ? 2 : 0);
-        return Math.min(quadrant, drawer.unlocked - 1);
+        double horizontal = 0.0;
+        double vertical = 0.5;
+        if (point != null) {
+            double dx = point.getX() - (block.getX() + 0.5);
+            double dz = point.getZ() - (block.getZ() + 0.5);
+            horizontal = dx * face.rightX + dz * face.rightZ;
+            vertical = point.getY() - block.getY();
+        }
+        int quadrant = (horizontal < 0 ? 0 : 1) + (vertical < 0.5 ? 2 : 0);
+        return Math.max(0, Math.min(quadrant, drawer.unlocked - 1));
+    }
+
+    /** Point où le regard du joueur traverse le plan de la face avant du bloc. */
+    private Vector intersectFace(Location eye, Face face, Block block) {
+        Vector direction = eye.getDirection();
+        double denominator = direction.getX() * face.outX + direction.getZ() * face.outZ;
+        if (Math.abs(denominator) < 1.0e-4) {
+            return null;
+        }
+        double planeX = block.getX() + 0.5 + face.outX * 0.5;
+        double planeZ = block.getZ() + 0.5 + face.outZ * 0.5;
+        double distance = ((planeX - eye.getX()) * face.outX
+                + (planeZ - eye.getZ()) * face.outZ) / denominator;
+        if (distance <= 0 || distance > 8.0) {
+            return null;
+        }
+        return eye.toVector().add(direction.clone().multiply(distance));
     }
 
     private void insert(Player player, Block block, Drawer drawer, int preferred) {
