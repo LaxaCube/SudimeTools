@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Compile et package SudimeTools.
-# Dépendances : JDK 21 + jars Paper API (paper-api.jar + libs) dans /tmp/apilibs.
+# Dépendances : JDK 21, jars Paper API dans /tmp/apilibs, et le jar CraftEngine
+# (../survival/plugins/CraftEngine-*.jar) pour l'API blocs/items.
 set -euo pipefail
 cd "$(dirname "$0")"
 
