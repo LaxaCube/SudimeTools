@@ -1,0 +1,16 @@
+name: SudimeTools
+version: '1.0'
+main: ch.laxacube.sudimetools.SudimeTools
+api-version: '1.21'
+author: LaxaCube
+description: Comportements custom des outils en Sudime (items CraftEngine).
+softdepend: [PlaceholderAPI, CraftEngine]
+commands:
+  sudimetools:
+    description: Debug / contrôle des outils en Sudime.
+    usage: /sudimetools <id|dump|selftest|magnet|drawer> [joueur]
+    aliases: [sdt]
+permissions:
+  sudime.admin:
+    description: Accès à /sudimetools.
+    default: op
