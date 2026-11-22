@@ -21,6 +21,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Display;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.TextDisplay;
 import org.bukkit.event.Event;
@@ -36,10 +37,12 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.Vector;
+import org.joml.AxisAngle4f;
+import org.bukkit.util.Transformation;
+import org.joml.Vector3f;
 
 import java.io.File;
 import java.io.IOException;
@@ -66,16 +69,26 @@ public final class SudimeDrawers implements Listener {
     private static final int MAX_SLOTS = 4;
     /** Nombre de piles de 64 stockables par compartiment. */
     private static final int STACKS_PER_SLOT = 20;
-    private static final String HOLO_TAG = "sudime_drawer_holo";
+    private static final String DISPLAY_TAG = "sudime_drawer_display";
+    /** Taille des items affichés sur la face (0.6 pour l'item unique du drawer normal). */
+    private static final float ITEM_SCALE = 0.28f;
+    /** Taille du texte de quantité sous chaque item. */
+    private static final float TEXT_SCALE = 0.24f;
+    /** Écart entre le centre du bloc et le centre d'une case (2×2). */
+    private static final double CELL_OFFSET = 0.25;
+    /** Distance de la face avant par rapport au centre du bloc. */
+    private static final double FACE_OFFSET = 0.53;
 
     private final JavaPlugin plugin;
-    private final NamespacedKey holoKey;
+    private final NamespacedKey displayKey;
+    private final NamespacedKey slotKey;
     private final File file;
     private final Map<String, Drawer> drawers = new HashMap<>();
 
     public SudimeDrawers(JavaPlugin plugin) {
         this.plugin = plugin;
-        this.holoKey = new NamespacedKey(plugin, "drawer_holo");
+        this.displayKey = new NamespacedKey(plugin, "drawer_display");
+        this.slotKey = new NamespacedKey(plugin, "drawer_slot");
         this.file = new File(plugin.getDataFolder(), "drawers.yml");
     }
 
@@ -458,7 +471,7 @@ public final class SudimeDrawers implements Listener {
         Block block = event.bukkitBlock();
         String key = key(block);
         Drawer drawer = drawers.remove(key);
-        removeHologram(block, key);
+        removeDisplays(block, key);
         if (drawer == null) {
             save();
             return;
@@ -510,7 +523,7 @@ public final class SudimeDrawers implements Listener {
     }
 
     // ------------------------------------------------------------------
-    // Hologramme au-dessus du drawer
+    // Affichage des compartiments sur la face avant
     // ------------------------------------------------------------------
 
     @EventHandler
@@ -544,103 +557,132 @@ public final class SudimeDrawers implements Listener {
     private void refresh(Block block) {
         World world = block.getWorld();
         String key = key(block);
-        removeHologram(block, key);
+        removeDisplays(block, key);
         Drawer drawer = drawers.get(key);
-        if (drawer == null || (drawer.unlocked <= 1 && drawer.isEmpty())) {
+        if (drawer == null || drawer.isEmpty()) {
             return;
         }
         if (!world.isChunkLoaded(block.getX() >> 4, block.getZ() >> 4)) {
             return;
         }
-        Location center = frontCenter(block);
-        world.spawn(center, TextDisplay.class, display -> {
-            display.text(buildText(drawer));
-            display.setBillboard(Display.Billboard.CENTER);
-            display.setAlignment(TextDisplay.TextAlignment.CENTER);
-            display.setShadowed(true);
-            display.setSeeThrough(false);
-            display.setDefaultBackground(false);
-            display.setBackgroundColor(Color.fromARGB(120, 0, 0, 0));
-            display.setLineWidth(220);
-            display.setViewRange(0.4f);
-            display.setPersistent(false);
-            display.getScoreboardTags().add(HOLO_TAG);
-            display.getPersistentDataContainer().set(holoKey, PersistentDataType.STRING, key);
-        });
+        Face face = faceOf(block);
+        Location center = block.getLocation().add(0.5, 0.5, 0.5);
+        for (int slot = 0; slot < drawer.unlocked; slot++) {
+            ItemStack template = drawer.items[slot];
+            if (template == null || drawer.counts[slot] <= 0) {
+                continue;
+            }
+            final int index = slot;
+            double horizontal = slot % 2 == 0 ? -CELL_OFFSET : CELL_OFFSET;
+            double vertical = slot < 2 ? CELL_OFFSET : -CELL_OFFSET;
+            double offsetX = face.rightX * horizontal;
+            double offsetZ = face.rightZ * horizontal;
+
+            Location itemLocation = center.clone().add(
+                    face.outX * FACE_OFFSET + offsetX,
+                    vertical + 0.05,
+                    face.outZ * FACE_OFFSET + offsetZ);
+            world.spawn(itemLocation, ItemDisplay.class, display -> {
+                ItemStack shown = template.clone();
+                shown.setAmount(1);
+                display.setItemStack(shown);
+                display.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.FIXED);
+                display.setBillboard(Display.Billboard.FIXED);
+                display.setRotation(face.yaw, 0f);
+                display.setTransformation(new Transformation(new Vector3f(), new AxisAngle4f(),
+                        new Vector3f(ITEM_SCALE, ITEM_SCALE, ITEM_SCALE), new AxisAngle4f()));
+                display.setViewRange(0.4f);
+                display.setPersistent(false);
+                display.getScoreboardTags().add(DISPLAY_TAG);
+                display.getPersistentDataContainer().set(displayKey, PersistentDataType.STRING, key);
+                display.getPersistentDataContainer().set(slotKey, PersistentDataType.INTEGER, index);
+            });
+
+            Location textLocation = center.clone().add(
+                    face.outX * FACE_OFFSET + offsetX,
+                    vertical - 0.15,
+                    face.outZ * FACE_OFFSET + offsetZ);
+            world.spawn(textLocation, TextDisplay.class, display -> {
+                display.text(Component.text(drawer.counts[index])
+                        .colorIfAbsent(NamedTextColor.WHITE));
+                display.setBillboard(Display.Billboard.FIXED);
+                display.setRotation(face.yaw, 0f);
+                display.setAlignment(TextDisplay.TextAlignment.CENTER);
+                display.setShadowed(true);
+                display.setSeeThrough(false);
+                display.setDefaultBackground(false);
+                display.setBackgroundColor(Color.fromARGB(0, 0, 0, 0));
+                display.setLineWidth(60);
+                display.setTransformation(new Transformation(new Vector3f(), new AxisAngle4f(),
+                        new Vector3f(TEXT_SCALE, TEXT_SCALE, TEXT_SCALE), new AxisAngle4f()));
+                display.setViewRange(0.4f);
+                display.setPersistent(false);
+                display.getScoreboardTags().add(DISPLAY_TAG);
+                display.getPersistentDataContainer().set(displayKey, PersistentDataType.STRING, key);
+                display.getPersistentDataContainer().set(slotKey, PersistentDataType.INTEGER, index);
+            });
+        }
     }
 
-    private void removeHologram(Block block, String key) {
+    private void removeDisplays(Block block, String key) {
         World world = block.getWorld();
         if (!world.isChunkLoaded(block.getX() >> 4, block.getZ() >> 4)) {
             return;
         }
-        Location center = frontCenter(block);
-        for (Entity entity : world.getNearbyEntities(center, 1.0, 1.2, 1.0)) {
-            if (!(entity instanceof TextDisplay)) {
+        Location center = block.getLocation().add(0.5, 0.5, 0.5);
+        for (Entity entity : world.getNearbyEntities(center, 1.2, 1.2, 1.2)) {
+            if (!(entity instanceof ItemDisplay) && !(entity instanceof TextDisplay)) {
                 continue;
             }
-            if (!entity.getScoreboardTags().contains(HOLO_TAG)) {
+            if (!entity.getScoreboardTags().contains(DISPLAY_TAG)) {
                 continue;
             }
             if (key.equals(entity.getPersistentDataContainer()
-                    .get(holoKey, PersistentDataType.STRING))) {
+                    .get(displayKey, PersistentDataType.STRING))) {
                 entity.remove();
             }
         }
     }
 
-    /** Point au centre de la face avant du drawer (là où est affiché l'hologramme). */
-    private Location frontCenter(Block block) {
-        Location center = block.getLocation().add(0.5, 0.55, 0.5);
+    /** Repère de la face avant : normale sortante, axe horizontal écran et rotation des affichages. */
+    private static final class Face {
+        final double outX;
+        final double outZ;
+        final double rightX;
+        final double rightZ;
+        final float yaw;
+
+        Face(double outX, double outZ, double rightX, double rightZ, float yaw) {
+            this.outX = outX;
+            this.outZ = outZ;
+            this.rightX = rightX;
+            this.rightZ = rightZ;
+            this.yaw = yaw;
+        }
+    }
+
+    private Face faceOf(Block block) {
+        Direction facing = Direction.NORTH;
         try {
             ImmutableBlockState state = CraftEngineBlocks.getCustomBlockState(block);
             if (state != null) {
                 Property<Direction> property = state.getProperty("facing");
                 if (property != null) {
-                    Direction facing = state.get(property);
-                    if (facing != null) {
-                        switch (facing) {
-                            case NORTH -> center.add(0, 0, -0.55);
-                            case SOUTH -> center.add(0, 0, 0.55);
-                            case EAST -> center.add(0.55, 0, 0);
-                            case WEST -> center.add(-0.55, 0, 0);
-                            default -> {
-                            }
-                        }
+                    Direction value = state.get(property);
+                    if (value != null) {
+                        facing = value;
                     }
                 }
             }
         } catch (Throwable ignored) {
-            // Pas de facing lisible : hologramme au-dessus du bloc.
-            center.add(0, 0.65, 0);
+            // facing illisible : on affiche comme si le drawer regardait au nord.
         }
-        return center;
-    }
-
-    private Component buildText(Drawer drawer) {
-        Component text = Component.text("Drawer Sudime ", NamedTextColor.LIGHT_PURPLE)
-                .append(Component.text(drawer.unlocked + "/" + MAX_SLOTS, NamedTextColor.WHITE));
-        for (int i = 0; i < drawer.unlocked; i++) {
-            text = text.append(Component.newline());
-            if (drawer.items[i] == null || drawer.counts[i] <= 0) {
-                text = text.append(Component.text("— vide —", NamedTextColor.DARK_GRAY));
-            } else {
-                text = text.append(itemName(drawer.items[i]).colorIfAbsent(NamedTextColor.WHITE))
-                        .append(Component.text(" ×" + drawer.counts[i], NamedTextColor.GRAY));
-            }
-        }
-        return text;
-    }
-
-    private Component itemName(ItemStack item) {
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null && meta.hasDisplayName()) {
-            Component name = meta.displayName();
-            if (name != null) {
-                return name;
-            }
-        }
-        return Component.translatable(item.getType().translationKey());
+        return switch (facing) {
+            case SOUTH -> new Face(0, 1, 1, 0, 0f);
+            case EAST -> new Face(1, 0, 0, -1, 270f);
+            case WEST -> new Face(-1, 0, 0, 1, 90f);
+            default -> new Face(0, -1, -1, 0, 180f);
+        };
     }
 
     // ------------------------------------------------------------------
