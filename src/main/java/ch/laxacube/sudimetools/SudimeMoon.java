@@ -37,9 +37,10 @@ import java.util.UUID;
 /**
  * Dimension lunaire : monde généré par le plugin, portail et armure obligatoire.
  * <ul>
- *     <li>Un simple bloc <code>sudime:moon_portal</code> posé n'importe où : clic
- *     droit dessus avec l'Armure Lunaire complète → téléportation sur la Lune.</li>
- *     <li>Sur la Lune, le même bloc (posé au spawn) ramène d'où l'on vient.</li>
+ *     <li>La commande <code>/lune</code> va sur la Lune (et en revient), avec
+ *     l'Armure Lunaire complète obligatoire pour y aller.</li>
+ *     <li>Alternative : le bloc <code>sudime:moon_portal</code> posé au sol, ou
+ *     l'item Portail lunaire cliqué dans le vide.</li>
  *     <li>Les mobs lunaires apparaissent autour des joueurs, avec un modèle
  *     BetterModel quand il est disponible.</li>
  * </ul>
@@ -202,21 +203,35 @@ public final class SudimeMoon implements Listener {
 
     @EventHandler
     public void onInteract(PlayerInteractEvent event) {
-        if (event.getAction() != Action.RIGHT_CLICK_BLOCK || event.getHand() == null) {
+        if (event.getHand() == null) {
             return;
         }
-        Block block = event.getClickedBlock();
-        if (block == null || !PORTAL.equals(ceBlockId(block))) {
-            return;
-        }
-        event.setCancelled(true);
         Player player = event.getPlayer();
+        if (event.getAction() == Action.RIGHT_CLICK_BLOCK && event.getClickedBlock() != null
+                && PORTAL.equals(ceBlockId(event.getClickedBlock()))) {
+            event.setCancelled(true);
+            toggle(player);
+            return;
+        }
+        // Le portail fonctionne aussi sans être posé : clic droit dans le vide
+        // avec l'item en main.
+        if (event.getAction() == Action.RIGHT_CLICK_AIR) {
+            String held = SudimeTools.ceId(player.getInventory().getItemInMainHand());
+            if (PORTAL.equals(held)) {
+                event.setCancelled(true);
+                toggle(player);
+            }
+        }
+    }
+
+    /** Va sur la Lune, ou revient dans l'Overworld si on y est déjà. */
+    public void toggle(Player player) {
         long now = System.currentTimeMillis();
         if (cooldown.getOrDefault(player.getUniqueId(), 0L) > now) {
             return;
         }
         cooldown.put(player.getUniqueId(), now + 3000L);
-        if (block.getWorld().getName().equals(WORLD_NAME)) {
+        if (player.getWorld().getName().equals(WORLD_NAME)) {
             leaveMoon(player);
         } else {
             enter(player);

@@ -8,8 +8,11 @@ softdepend: [PlaceholderAPI, CraftEngine]
 commands:
   sudimetools:
     description: Debug / contrôle des outils en Sudime.
-    usage: /sudimetools <id|dump|selftest|magnet|drawer> [joueur]
+    usage: /sudimetools <id|dump|selftest|magnet|drawer|moon> [joueur]
     aliases: [sdt]
+  lune:
+    description: Va sur la Lune (armure lunaire complète requise) et revient.
+    usage: /lune
 permissions:
   sudime.admin:
     description: Accès à /sudimetools.

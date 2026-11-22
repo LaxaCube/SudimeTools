@@ -889,6 +889,19 @@ public final class SudimeTools extends JavaPlugin implements Listener {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if ("lune".equalsIgnoreCase(command.getName())) {
+            if (!(sender instanceof Player player)) {
+                sender.sendMessage(Component.text("Commande joueur uniquement.", NamedTextColor.RED));
+                return true;
+            }
+            if (moon == null) {
+                player.sendMessage(Component.text("CraftEngine absent : Lune indisponible.",
+                        NamedTextColor.RED));
+                return true;
+            }
+            moon.toggle(player);
+            return true;
+        }
         String sub = args.length == 0 ? "id" : args[0].toLowerCase();
         if ("id".equals(sub)) {
             Player target = args.length >= 2 ? Bukkit.getPlayerExact(args[1])
@@ -1000,7 +1013,8 @@ public final class SudimeTools extends JavaPlugin implements Listener {
             moon.enter(player);
             return true;
         }
-        player.sendMessage(Component.text("Usage : /sudimetools <id [joueur]|dump|selftest|magnet|drawer|moon [kit]>", NamedTextColor.GRAY));
+        player.sendMessage(Component.text("Usage : /sudimetools <id [joueur]|dump|selftest|magnet|drawer|moon [kit]"
+                + " — ou /lune pour voyager sur la Lune", NamedTextColor.GRAY));
         return true;
     }
 }
